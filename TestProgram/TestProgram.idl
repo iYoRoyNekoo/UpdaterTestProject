@@ -1,0 +1,29 @@
+﻿// TestProgram.idl: TestProgram.exe 的类型库源
+
+// 此文件将由 MIDL 编译器处理以产生
+// 类型库(TestProgram.tlb)。
+
+[ uuid(1d61a211-1959-4357-8389-f734c9eee6da), version(1.0) ]
+library TestProgram
+{
+	importlib("stdole32.tlb");
+	importlib("stdole2.tlb");
+
+	//  CTestProgramDoc 的主调度接口
+
+	[ uuid(cf5b88d5-762b-4791-af38-da244c08fd30) ]
+	dispinterface ITestProgram
+	{
+		properties:
+
+		methods:
+	};
+
+	//  CTestProgramDoc 的类信息
+
+	[ uuid(3b346743-39b7-48c4-94a9-b8e2425cf3e9) ]
+	coclass TestProgram
+	{
+		[default] dispinterface ITestProgram;
+	};
+};
