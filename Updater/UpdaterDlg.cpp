@@ -86,27 +86,17 @@ std::string UnicodeStringToSTLString(CString strUTF) {
 	pStrSTL[len + 1] = '/0';
 	return pStrSTL;
 }
-/*
-ptr是指向存储数据的指针，
-size是每个块的大小，
-nmemb是指块的数目，
-stream是用户参数。
-所以根据以上这些参数的信息可以知道，ptr中的数据的总长度是size*nmemb
-*/
-size_t call_write_func(const char* ptr, size_t size, size_t nmemb, std::string* stream)
-{
+//HTTP回调函数（header和content通用）
+size_t curl_default_callback(const char* ptr, size_t size, size_t nmemb, std::string* stream) {
 	assert(stream != NULL);
 	size_t len = size * nmemb;
 	stream->append(ptr, len);
 	return len;
 }
-// 返回http header回调函数    
-size_t header_callback(const char* ptr, size_t size, size_t nmemb, std::string* stream)
-{
-	assert(stream != NULL);
-	size_t len = size * nmemb;
-	stream->append(ptr, len);
-	return len;
+//文件下载回调函数
+size_t curl_writefile_callback(void* ptr, size_t size, size_t nmemb, FILE* stream) {
+	size_t written = fwrite(ptr, size, nmemb, stream);
+	return written;
 }
 
 CString strCurVer, strFilePath;
@@ -125,7 +115,12 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 	Json::Reader jReader;
 	Json::Value jRoot, jVersionInfo;
 
-	//TODO：解析节点
+	mLock.Unlock();//线程互斥
+
+	//线程Init结束
+
+
+	//解析节点
 	//		参考：https://learn.microsoft.com/zh-cn/troubleshoot/windows/win32/use-dnsquery-resolve-host-names
 	status = DnsQuery(
 		L"nodes.update.api.iyoroy.cn",	//TXT记录的主机名
@@ -142,48 +137,58 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 
 	if (!jReader.parse(strQueryResult, jRoot))return 0;//无法解析JSON，终止
 
-	curl_global_init(CURL_GLOBAL_ALL);
-
 	double mMinTime = 60;
-	std::string strTargetServerUrl;
-	std::string strTargetVersion;
+	int mLatestBuild = mCurBuild;
+	std::string strTargetServerUrl, strTargetVersion;
+	CURL* mCurl = curl_easy_init();
+	CURLcode mCode;
+	std::string mUA = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:13.0) Gecko/20100101 Firefox/13.0.1 TestProject/1.0.0";
+	std::string szbuffer;
+	std::string szheader_buffer;
+	double val;
+	bool available = false;
+
+	//curl init
+	curl_global_init(CURL_GLOBAL_ALL);
+	curl_easy_setopt(mCurl, CURLOPT_USERAGENT, mUA.c_str());	//设置UserAgent
+	curl_easy_setopt(mCurl, CURLOPT_SSL_VERIFYHOST, 0L);		//设置SSL验证级别（0-2，宽松-严格）
+	curl_easy_setopt(mCurl, CURLOPT_CAINFO, "cacert.pem");		//根证书信息
+	curl_easy_setopt(mCurl, CURLOPT_MAXREDIRS, 5);				//设置最大重定向次数
+	curl_easy_setopt(mCurl, CURLOPT_FOLLOWLOCATION, 1);			//设置301、302跳转跟随location
+	curl_easy_setopt(mCurl, CURLOPT_TIMEOUT, 30L);				//超时设置
+	curl_easy_setopt(mCurl, CURLOPT_CONNECTTIMEOUT, 10L);		//连接超时设置
+	curl_easy_setopt(mCurl, CURLOPT_FAILONERROR, 1L);			//服务端返回40x代码时返回错误而不是下载错误页
+	//抓取内容后，回调函数  
+	curl_easy_setopt(mCurl, CURLOPT_WRITEFUNCTION, curl_default_callback);
+	curl_easy_setopt(mCurl, CURLOPT_WRITEDATA, &szbuffer);
+	//抓取头信息，回调函数  
+	curl_easy_setopt(mCurl, CURLOPT_HEADERFUNCTION, curl_default_callback);
+	curl_easy_setopt(mCurl, CURLOPT_HEADERDATA, &szheader_buffer);
+	//curl init done
 
 	for (int i = 0; i < jRoot.size(); i++) {
-		CURL* mCurl = curl_easy_init();
-		CURLcode mCode;
-		std::string mUA = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:13.0) Gecko/20100101 Firefox/13.0.1 TestProject/1.0.0";
+
+		szbuffer = "";
+		szheader_buffer = "";
+
 		std::string mServerUrl = jRoot[i].asString();
 		std::string mVersionUrl = mServerUrl + "Release.json";
-		std::string szbuffer;
-		std::string szheader_buffer;
-		double val;
 
 		curl_easy_setopt(mCurl, CURLOPT_URL, mVersionUrl.c_str());	//设置URL
-		curl_easy_setopt(mCurl, CURLOPT_USERAGENT, mUA.c_str());	//设置UserAgent
-		curl_easy_setopt(mCurl, CURLOPT_SSL_VERIFYHOST, 0L);		//设置SSL验证级别（0-2，宽松-严格）
-		curl_easy_setopt(mCurl, CURLOPT_CAINFO, "cacert.pem");		//根证书信息
-		curl_easy_setopt(mCurl, CURLOPT_MAXREDIRS, 5);				//设置最大重定向次数
-		curl_easy_setopt(mCurl, CURLOPT_FOLLOWLOCATION, 1);			//设置301、302跳转跟随location
-		curl_easy_setopt(mCurl, CURLOPT_TIMEOUT, 30L);				//超时设置
-		curl_easy_setopt(mCurl, CURLOPT_CONNECTTIMEOUT, 10L);		//连接超时设置
-		//抓取内容后，回调函数  
-		curl_easy_setopt(mCurl, CURLOPT_WRITEFUNCTION, call_write_func);
-		curl_easy_setopt(mCurl, CURLOPT_WRITEDATA, &szbuffer);
-		//抓取头信息，回调函数  
-		curl_easy_setopt(mCurl, CURLOPT_HEADERFUNCTION, header_callback);
-		curl_easy_setopt(mCurl, CURLOPT_HEADERDATA, &szheader_buffer);
 
 
 		mCode = curl_easy_perform(mCurl);
 		if (mCode != CURLE_OK) {//下载失败，中断
-			curl_easy_cleanup(mCurl);
+			//curl_easy_cleanup(mCurl);
 			continue;
 		}
 
 		if (!jReader.parse(szbuffer, jVersionInfo)) {//解析失败，服务端配置文件不合法
-			curl_easy_cleanup(mCurl);
+			//curl_easy_cleanup(mCurl);
 			continue;
 		}
+
+		available = true;
 
 		mCode = curl_easy_getinfo(mCurl, CURLINFO_SIZE_DOWNLOAD, &val);
 		if ((CURLE_OK == mCode) && (val > 0))
@@ -196,53 +201,50 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 			TRACE(L"Total download time: %0.3f sec.\n", val);
 
 		TRACE(L"Get ReleaseVer Finish.");
-		curl_easy_cleanup(mCurl);
+		//curl_easy_cleanup(mCurl);
 
-		if (mTargetBuild < jVersionInfo["build"].asInt() && val <= mMinTime) {
-			mTargetBuild = jVersionInfo["build"].asInt();
+		if (mLatestBuild < jVersionInfo["build"].asInt() && val <= mMinTime) {
+			mLatestBuild = jVersionInfo["build"].asInt();
 			mMinTime = val;
 			strTargetServerUrl = mServerUrl;
 			strTargetVersion = jVersionInfo["release"].asString();
 		}
 	}
+
+	if (!available) {
+		curl_easy_cleanup(mCurl);
+		curl_global_cleanup();
+		MessageBox(GhWnd, L"服务器连接失败！", L"Error", MB_OK | MB_ICONERROR);
+		PostQuitMessage(-1);
+		return 0;
+	}
 	
 	SetDlgItemTextA(GhWnd, IDC_VERSION_TAR, strTargetVersion.c_str());
 
-	CURL* mCurl = curl_easy_init();
-	CURLcode mCode;
-	std::string mUA = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:13.0) Gecko/20100101 Firefox/13.0.1 TestProject/1.0.0";
 	char szConfigUrl[512];
-	std::string szbuffer;
-	std::string szheader_buffer;
-	double val;
 
 	sprintf_s(szConfigUrl, "%sgenerate-config.php?version=%d", strTargetServerUrl.c_str(), mCurBuild);
 
 	curl_easy_setopt(mCurl, CURLOPT_URL, szConfigUrl);	//设置URL
-	curl_easy_setopt(mCurl, CURLOPT_USERAGENT, mUA.c_str());	//设置UserAgent
-	curl_easy_setopt(mCurl, CURLOPT_SSL_VERIFYHOST, 0L);		//设置SSL验证级别（0-2，宽松-严格）
-	curl_easy_setopt(mCurl, CURLOPT_CAINFO, "cacert.pem");		//根证书信息
-	curl_easy_setopt(mCurl, CURLOPT_MAXREDIRS, 5);				//设置最大重定向次数
-	curl_easy_setopt(mCurl, CURLOPT_FOLLOWLOCATION, 1);			//设置301、302跳转跟随location
-	curl_easy_setopt(mCurl, CURLOPT_TIMEOUT, 30L);				//超时设置
-	curl_easy_setopt(mCurl, CURLOPT_CONNECTTIMEOUT, 10L);		//连接超时设置
-	//抓取内容后，回调函数  
-	curl_easy_setopt(mCurl, CURLOPT_WRITEFUNCTION, call_write_func);
-	curl_easy_setopt(mCurl, CURLOPT_WRITEDATA, &szbuffer);
-	//抓取头信息，回调函数  
-	curl_easy_setopt(mCurl, CURLOPT_HEADERFUNCTION, header_callback);
-	curl_easy_setopt(mCurl, CURLOPT_HEADERDATA, &szheader_buffer);
 
+	szbuffer = "";
+	szheader_buffer = "";
 
 	mCode = curl_easy_perform(mCurl);
 	if (mCode != CURLE_OK) {//下载失败，中断
 		curl_easy_cleanup(mCurl);
 		curl_global_cleanup();
+		MessageBox(GhWnd, L"配置文件下载失败！", L"Error", MB_OK | MB_ICONERROR);
+		PostQuitMessage(-1);
+		return 0;
 	}
 
 	if (!jReader.parse(szbuffer, jRoot)) {//解析失败，服务端配置文件不合法
 		curl_easy_cleanup(mCurl);
 		curl_global_cleanup();
+		MessageBox(GhWnd, L"配置文件解析失败！", L"Error", MB_OK | MB_ICONERROR);
+		PostQuitMessage(-1);
+		return 0;
 	}
 
 	mCode = curl_easy_getinfo(mCurl, CURLINFO_SIZE_DOWNLOAD, &val);
@@ -257,6 +259,7 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 
 	TRACE(L"Get Info Finish.");
 	curl_easy_cleanup(mCurl);
+	curl_global_cleanup();
 
 	strFilesToDownload = new std::string[jRoot.size()];
 	for (int i = 0; i < jRoot.size(); i++)strFilesToDownload[i] = strTargetServerUrl + jRoot[i].asString();
@@ -264,8 +267,6 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 	totalDownload = jRoot.size();
 
 	PostMessage(GhWnd, UM_FINISH_INIT_DLG_UPDATE, 0, 0);
-
-	curl_global_cleanup();
 
 	return 0;
 }
@@ -510,13 +511,13 @@ LRESULT CBindCallback::OnProgress(ULONG ulProgress,
 */
 
 DWORD WINAPI OnUpdate(LPVOID lpParam) {
-	CBindCallback cbc;
+	//CBindCallback cbc;
 	CUpdaterDlg* p_Dlg = (CUpdaterDlg*)lpParam;
-	cbc.m_pdlg = p_Dlg;
+	//cbc.m_pdlg = p_Dlg;
 	mLock.Unlock();
 
 	for (int i = 0; i < totalDownload; i++) {
-		HRESULT ret=URLDownloadToFileA(NULL, strFilesToDownload[i].c_str(), UnicodeStringToSTLString(strFilePath).c_str(), 0, &cbc);
+		//HRESULT ret=URLDownloadToFileA(NULL, strFilesToDownload[i].c_str(), UnicodeStringToSTLString(strFilePath).c_str(), 0, &cbc);
 		p_Dlg->m_ProgressTotal.SetPos(i + 1);
 	}
 

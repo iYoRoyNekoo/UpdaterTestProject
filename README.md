@@ -36,6 +36,7 @@
 | 获取https协议文本内容1 | https://blog.csdn.net/weixin_39510813/article/details/88978941 |
 | 获取https协议文本内容2 | https://blog.csdn.net/stpeace/article/details/77984611 |
 | 文件下载损坏问题 | https://www.thinbug.com/q/25427915 |
+| 获取文件下载进度 | https://blog.csdn.net/haysonzeng/article/details/108540158 |
 | 常见错误代码 | https://www.php.cn/js-tutorial-379132.html |
 
 ##### OpenSSL：

@@ -100,30 +100,23 @@ std::string UnicodeStringToSTLString(CString strUTF) {
 	pStrSTL[len + 1] = '/0';
 	return pStrSTL;
 }
-/*
-ptr是指向存储数据的指针，
-size是每个块的大小，
-nmemb是指块的数目，
-stream是用户参数。
-所以根据以上这些参数的信息可以知道，ptr中的数据的总长度是size*nmemb
-*/
-size_t call_write_func(const char* ptr, size_t size, size_t nmemb, std::string* stream)
-{
+
+//HTTP回调函数（header和content通用）
+size_t curl_default_callback(const char* ptr, size_t size, size_t nmemb, std::string* stream) {
 	assert(stream != NULL);
 	size_t len = size * nmemb;
 	stream->append(ptr, len);
 	return len;
 }
-// 返回http header回调函数    
-size_t header_callback(const char* ptr, size_t size, size_t nmemb, std::string* stream)
-{
-	assert(stream != NULL);
-	size_t len = size * nmemb;
-	stream->append(ptr, len);
-	return len;
+//文件下载回调函数
+size_t curl_writefile_callback(void* ptr, size_t size, size_t nmemb, FILE* stream) {
+	size_t written = fwrite(ptr, size, nmemb, stream);
+	return written;
 }
 
 DWORD WINAPI OnCheckUpdate(LPVOID lpParam) {
+	//线程Init	
+
 	CTestProgramDlg* pDlg = (CTestProgramDlg*)lpParam;
 	DNS_STATUS status;
 	PDNS_RECORD pDnsRecord;
@@ -131,9 +124,13 @@ DWORD WINAPI OnCheckUpdate(LPVOID lpParam) {
 	std::string strQueryResult;
 	Json::Reader jReader;
 	Json::Value jRoot,jVersionInfo;
+
 	mLock.Unlock();//线程互斥
 
-	//TODO：解析节点
+	//线程Init结束
+
+
+	//解析节点
 	//		参考：https://learn.microsoft.com/zh-cn/troubleshoot/windows/win32/use-dnsquery-resolve-host-names
 	status = DnsQuery(
 		L"nodes.update.api.iyoroy.cn",	//TXT记录的主机名
@@ -150,46 +147,52 @@ DWORD WINAPI OnCheckUpdate(LPVOID lpParam) {
 
 	if (!jReader.parse(strQueryResult, jRoot))return 0;//无法解析JSON，终止
 
-	curl_global_init(CURL_GLOBAL_ALL);
-
 	double mMinTime = 60;
 	int mLatestBuild = mBuild;
 	std::string strTargetServerUrl;
+	CURL* mCurl = curl_easy_init();
+	CURLcode mCode;
+	std::string mUA = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:13.0) Gecko/20100101 Firefox/13.0.1 TestProject/1.0.0";
+	std::string szbuffer;
+	std::string szheader_buffer;
+	double val;
+	//curl init
+	curl_global_init(CURL_GLOBAL_ALL);
+	curl_easy_setopt(mCurl, CURLOPT_USERAGENT, mUA.c_str());	//设置UserAgent
+	curl_easy_setopt(mCurl, CURLOPT_SSL_VERIFYHOST, 0L);		//设置SSL验证级别（0-2，宽松-严格）
+	curl_easy_setopt(mCurl, CURLOPT_CAINFO, "cacert.pem");		//根证书信息
+	curl_easy_setopt(mCurl, CURLOPT_MAXREDIRS, 5);				//设置最大重定向次数
+	curl_easy_setopt(mCurl, CURLOPT_FOLLOWLOCATION, 1);			//设置301、302跳转跟随location
+	curl_easy_setopt(mCurl, CURLOPT_TIMEOUT, 30L);				//超时设置
+	curl_easy_setopt(mCurl, CURLOPT_CONNECTTIMEOUT, 10L);		//连接超时设置
+	curl_easy_setopt(mCurl, CURLOPT_FAILONERROR, 1L);			//服务端返回40x代码时返回错误而不是下载错误页
+	//抓取内容后，回调函数  
+	curl_easy_setopt(mCurl, CURLOPT_WRITEFUNCTION, curl_default_callback);
+	curl_easy_setopt(mCurl, CURLOPT_WRITEDATA, &szbuffer);
+	//抓取头信息，回调函数  
+	curl_easy_setopt(mCurl, CURLOPT_HEADERFUNCTION, curl_default_callback);
+	curl_easy_setopt(mCurl, CURLOPT_HEADERDATA, &szheader_buffer);
+	//curl init done
 
 	for (int i = 0; i < jRoot.size(); i++) {
-		CURL* mCurl = curl_easy_init();
-		CURLcode mCode;
-		std::string mUA = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:13.0) Gecko/20100101 Firefox/13.0.1 TestProject/1.0.0";
+		
+		szbuffer = "";
+		szheader_buffer = "";
+
 		std::string mServerUrl = jRoot[i].asString();
 		std::string mVersionUrl = mServerUrl + "Release.json";
-		std::string szbuffer;
-		std::string szheader_buffer;
-		double val;
 
 		curl_easy_setopt(mCurl, CURLOPT_URL, mVersionUrl.c_str());	//设置URL
-		curl_easy_setopt(mCurl, CURLOPT_USERAGENT, mUA.c_str());	//设置UserAgent
-		curl_easy_setopt(mCurl, CURLOPT_SSL_VERIFYHOST, 0L);		//设置SSL验证级别（0-2，宽松-严格）
-		curl_easy_setopt(mCurl, CURLOPT_CAINFO, "cacert.pem");		//根证书信息
-		curl_easy_setopt(mCurl, CURLOPT_MAXREDIRS, 5);				//设置最大重定向次数
-		curl_easy_setopt(mCurl, CURLOPT_FOLLOWLOCATION, 1);			//设置301、302跳转跟随location
-		curl_easy_setopt(mCurl, CURLOPT_TIMEOUT, 30L);				//超时设置
-		curl_easy_setopt(mCurl, CURLOPT_CONNECTTIMEOUT, 10L);		//连接超时设置
-		//抓取内容后，回调函数  
-		curl_easy_setopt(mCurl, CURLOPT_WRITEFUNCTION, call_write_func);
-		curl_easy_setopt(mCurl, CURLOPT_WRITEDATA, &szbuffer);
-		//抓取头信息，回调函数  
-		curl_easy_setopt(mCurl, CURLOPT_HEADERFUNCTION, header_callback);
-		curl_easy_setopt(mCurl, CURLOPT_HEADERDATA, &szheader_buffer);
 
 
 		mCode = curl_easy_perform(mCurl);
 		if (mCode != CURLE_OK) {//下载失败，中断
-			curl_easy_cleanup(mCurl);
+			//curl_easy_cleanup(mCurl);
 			continue;
 		}
 
 		if (!jReader.parse(szbuffer, jVersionInfo)) {//解析失败，服务端配置文件不合法
-			curl_easy_cleanup(mCurl);
+			//curl_easy_cleanup(mCurl);
 			continue;
 		}
 
@@ -204,7 +207,7 @@ DWORD WINAPI OnCheckUpdate(LPVOID lpParam) {
 			TRACE(L"Total download time: %0.3f sec.\n", val);
 
 		TRACE(L"Get ReleaseVer Finish.");
-		curl_easy_cleanup(mCurl);
+		//curl_easy_cleanup(mCurl);
 
 		if (mLatestBuild < jVersionInfo["build"].asInt() && val <= mMinTime) {
 			mLatestBuild = jVersionInfo["build"].asInt();
@@ -220,14 +223,45 @@ DWORD WINAPI OnCheckUpdate(LPVOID lpParam) {
 	}
 
 	TRACE(L"Select Node finish!");
-	curl_global_cleanup();
 
+//#ifndef DEBUG
+	FILE* pUpdaterFile;
 	std::string mUpdaterUrl = strTargetServerUrl + "Updater.exe";
 
-#ifndef DEBUG
-	HRESULT UpdaterDownloadStatus = URLDownloadToFileA(NULL, mUpdaterUrl.c_str(), "Updater.exe", 0, NULL);
-	if (UpdaterDownloadStatus != S_OK)return 0;	//下载更新器失败
-#endif // DEBUG
+	if (fopen_s(&pUpdaterFile, "Updater.exe", "wb")) {//无法创建更新器文件
+		TRACE(L"Failed to open file!");
+		return 0; 
+	}
+
+	curl_easy_setopt(mCurl, CURLOPT_URL, mUpdaterUrl.c_str());				//设置更新器URL
+	curl_easy_setopt(mCurl, CURLOPT_WRITEFUNCTION, curl_writefile_callback);//设置回调函数（不同于写入字符串）
+	curl_easy_setopt(mCurl, CURLOPT_WRITEDATA, pUpdaterFile);				//将内容写至文件句柄
+	curl_easy_setopt(mCurl, CURLOPT_TIMEOUT, 60L);							//超时设置
+
+	mCode = curl_easy_perform(mCurl);
+
+	fclose(pUpdaterFile);
+
+	if (mCode != CURLE_OK)
+		return 0;
+
+	mCode = curl_easy_getinfo(mCurl, CURLINFO_SIZE_DOWNLOAD, &val);
+	if ((CURLE_OK == mCode) && (val > 0))
+		TRACE(L"Data downloaded: %0.0f bytes.\n", val);
+	mCode = curl_easy_getinfo(mCurl, CURLINFO_SPEED_DOWNLOAD, &val);
+	if ((CURLE_OK == mCode) && (val > 0))
+		TRACE(L"Average download speed: %0.3f kbyte/sec.\n", val / 1024);
+	mCode = curl_easy_getinfo(mCurl, CURLINFO_TOTAL_TIME, &val);
+	if ((CURLE_OK == mCode) && (val > 0))
+		TRACE(L"Total download time: %0.3f sec.\n", val);
+
+	TRACE(L"Download Updater Finish.");
+
+//#endif // DEBUG
+
+	curl_easy_cleanup(mCurl);
+	curl_global_cleanup();
+
 	
 	SendMessage(pDlg->m_hWnd, UM_UPDATEINFO, 0, 0);
 
