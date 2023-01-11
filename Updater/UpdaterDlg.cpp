@@ -78,6 +78,20 @@ END_MESSAGE_MAP()
 
 
 // CUpdaterDlg 消息处理程序
+
+struct FILES_TO_DOWNLOAD {
+	std::string strUrl;
+	std::string strLocal;
+};
+
+CString strCurVer, strFilePath;
+int mCurBuild, mTargetBuild = 0;
+int totalDownload;
+bool bWorking = false;
+CMutex mLock;
+FILES_TO_DOWNLOAD* mFiles;
+CUpdaterDlg* Gp_Dlg;
+
 std::string UnicodeStringToSTLString(CString strUTF) {
 	int n = strUTF.GetLength();
 	int len = WideCharToMultiByte(CP_ACP, 0, strUTF, strUTF.GetLength(), NULL, 0, NULL, NULL);
@@ -98,14 +112,16 @@ size_t curl_writefile_callback(void* ptr, size_t size, size_t nmemb, FILE* strea
 	size_t written = fwrite(ptr, size, nmemb, stream);
 	return written;
 }
-
-CString strCurVer, strFilePath;
-int mCurBuild, mTargetBuild = 0;
-HWND GhWnd;
-int totalDownload;
-std::string* strFilesToDownload;
-bool bWorking = false;
-CMutex mLock;
+int curl_showprogress_callback(void* ptr, double TotalToDownload, double NowDownloaded, double TotalToUpload, double NowUploaded) {
+	double fractiondownloaded;
+	if (TotalToDownload == 0.0)
+		fractiondownloaded = 0;
+	else 
+		fractiondownloaded = NowDownloaded / TotalToDownload;
+	int pointer = round(fractiondownloaded * 100);
+	Gp_Dlg->m_ProgressCurrent.SetPos(pointer);
+	return 0;
+}
 
 DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 	DNS_STATUS status;
@@ -114,8 +130,6 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 	std::string strQueryResult;
 	Json::Reader jReader;
 	Json::Value jRoot, jVersionInfo;
-
-	mLock.Unlock();//线程互斥
 
 	//线程Init结束
 
@@ -214,12 +228,12 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 	if (!available) {
 		curl_easy_cleanup(mCurl);
 		curl_global_cleanup();
-		MessageBox(GhWnd, L"服务器连接失败！", L"Error", MB_OK | MB_ICONERROR);
+		MessageBox(Gp_Dlg->m_hWnd, L"服务器连接失败！", L"Error", MB_OK | MB_ICONERROR);
 		PostQuitMessage(-1);
 		return 0;
 	}
 	
-	SetDlgItemTextA(GhWnd, IDC_VERSION_TAR, strTargetVersion.c_str());
+	SetDlgItemTextA(Gp_Dlg->m_hWnd, IDC_VERSION_TAR, strTargetVersion.c_str());
 
 	char szConfigUrl[512];
 
@@ -234,7 +248,7 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 	if (mCode != CURLE_OK) {//下载失败，中断
 		curl_easy_cleanup(mCurl);
 		curl_global_cleanup();
-		MessageBox(GhWnd, L"配置文件下载失败！", L"Error", MB_OK | MB_ICONERROR);
+		MessageBox(Gp_Dlg->m_hWnd, L"配置文件下载失败！", L"Error", MB_OK | MB_ICONERROR);
 		PostQuitMessage(-1);
 		return 0;
 	}
@@ -242,7 +256,7 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 	if (!jReader.parse(szbuffer, jRoot)) {//解析失败，服务端配置文件不合法
 		curl_easy_cleanup(mCurl);
 		curl_global_cleanup();
-		MessageBox(GhWnd, L"配置文件解析失败！", L"Error", MB_OK | MB_ICONERROR);
+		MessageBox(Gp_Dlg->m_hWnd, L"配置文件解析失败！", L"Error", MB_OK | MB_ICONERROR);
 		PostQuitMessage(-1);
 		return 0;
 	}
@@ -261,12 +275,15 @@ DWORD WINAPI OnCheckNewVer(LPVOID lpParam) {
 	curl_easy_cleanup(mCurl);
 	curl_global_cleanup();
 
-	strFilesToDownload = new std::string[jRoot.size()];
-	for (int i = 0; i < jRoot.size(); i++)strFilesToDownload[i] = strTargetServerUrl + jRoot[i].asString();
+	mFiles = new FILES_TO_DOWNLOAD[jRoot.size()];
+	for (int i = 0; i < jRoot.size(); i++) {
+		mFiles[i].strUrl = strTargetServerUrl + jRoot[i]["remote"].asString();
+		mFiles[i].strLocal = jRoot[i]["local"].asString();
+	}
 
 	totalDownload = jRoot.size();
 
-	PostMessage(GhWnd, UM_FINISH_INIT_DLG_UPDATE, 0, 0);
+	PostMessage(Gp_Dlg->m_hWnd, UM_FINISH_INIT_DLG_UPDATE, 0, 0);
 
 	return 0;
 }
@@ -301,7 +318,7 @@ BOOL CUpdaterDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 
 	// TODO: 在此添加额外的初始化代码
-	GhWnd = this->m_hWnd;
+	Gp_Dlg = this;
 
 #ifdef DEBUG
 	strCurVer = "v1.0.0 Build001";
@@ -335,6 +352,8 @@ BOOL CUpdaterDlg::OnInitDialog()
 		0,
 		NULL
 	);  
+
+	m_ProgressCurrent.SetRange(0, 100);
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -396,8 +415,6 @@ LRESULT CUpdaterDlg::OnFinishInitUpdateDlg(WPARAM wParam, LPARAM lParam)
 	m_ProgressTotal.SetRange(0, totalDownload);
 	return LRESULT();
 }
-
-
 
 /*
 class CBindCallback :public IBindStatusCallback
@@ -511,14 +528,56 @@ LRESULT CBindCallback::OnProgress(ULONG ulProgress,
 */
 
 DWORD WINAPI OnUpdate(LPVOID lpParam) {
-	//CBindCallback cbc;
-	CUpdaterDlg* p_Dlg = (CUpdaterDlg*)lpParam;
-	//cbc.m_pdlg = p_Dlg;
-	mLock.Unlock();
+
+	CURL* mCurl = curl_easy_init();
+	CURLcode mCode;
+	std::string mUA = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:13.0) Gecko/20100101 Firefox/13.0.1 TestProject/1.0.0";
+	std::string szheader_buffer;
+	double val;
+
+	//curl init
+	curl_global_init(CURL_GLOBAL_ALL);
+	curl_easy_setopt(mCurl, CURLOPT_USERAGENT, mUA.c_str());	//设置UserAgent
+	curl_easy_setopt(mCurl, CURLOPT_SSL_VERIFYHOST, 0L);		//设置SSL验证级别（0-2，宽松-严格）
+	curl_easy_setopt(mCurl, CURLOPT_CAINFO, "cacert.pem");		//根证书信息
+	curl_easy_setopt(mCurl, CURLOPT_MAXREDIRS, 5);				//设置最大重定向次数
+	curl_easy_setopt(mCurl, CURLOPT_FOLLOWLOCATION, 1);			//设置301、302跳转跟随location
+	curl_easy_setopt(mCurl, CURLOPT_TIMEOUT, 600L);				//超时设置
+	curl_easy_setopt(mCurl, CURLOPT_CONNECTTIMEOUT, 10L);		//连接超时设置
+	curl_easy_setopt(mCurl, CURLOPT_FAILONERROR, 1L);			//服务端返回40x代码时返回错误而不是下载错误页
+	curl_easy_setopt(mCurl, CURLOPT_WRITEFUNCTION, curl_writefile_callback);//设置回调函数（不同于写入字符串）
+	curl_easy_setopt(mCurl, CURLOPT_PROGRESSFUNCTION, curl_showprogress_callback);//设置进度显示
+	curl_easy_setopt(mCurl, CURLOPT_NOPROGRESS, 0L);//设置进度
+	//抓取头信息，回调函数  
+	curl_easy_setopt(mCurl, CURLOPT_HEADERFUNCTION, curl_default_callback);
+	curl_easy_setopt(mCurl, CURLOPT_HEADERDATA, &szheader_buffer);
+
 
 	for (int i = 0; i < totalDownload; i++) {
+		FILE* pFile;
+		fopen_s(&pFile, mFiles[i].strLocal.c_str(), "wb");
+		curl_easy_setopt(mCurl, CURLOPT_WRITEDATA, pFile);
+		curl_easy_setopt(mCurl, CURLOPT_URL, mFiles[i].strUrl.c_str());
+		mCode = curl_easy_perform(mCurl);
+
+		if (mCode != CURLE_OK) {//下载失败，中断
+			//curl_easy_cleanup(mCurl);
+			continue;
+		}
+
+		mCode = curl_easy_getinfo(mCurl, CURLINFO_SIZE_DOWNLOAD, &val);
+		if ((CURLE_OK == mCode) && (val > 0))
+			TRACE(L"Data downloaded: %0.0f bytes.\n", val);
+		mCode = curl_easy_getinfo(mCurl, CURLINFO_SPEED_DOWNLOAD, &val);
+		if ((CURLE_OK == mCode) && (val > 0))
+			TRACE(L"Average download speed: %0.3f kbyte/sec.\n", val / 1024);
+		mCode = curl_easy_getinfo(mCurl, CURLINFO_TOTAL_TIME, &val);
+		if ((CURLE_OK == mCode) && (val > 0))
+			TRACE(L"Total download time: %0.3f sec.\n", val);
 		//HRESULT ret=URLDownloadToFileA(NULL, strFilesToDownload[i].c_str(), UnicodeStringToSTLString(strFilePath).c_str(), 0, &cbc);
-		p_Dlg->m_ProgressTotal.SetPos(i + 1);
+		fclose(pFile);
+
+		Gp_Dlg->m_ProgressTotal.SetPos(i + 1);
 	}
 
 	bWorking = false;
@@ -530,19 +589,15 @@ void CUpdaterDlg::OnBnClickedOk()
 	// TODO: 在此添加控件通知处理程序代码
 	((CButton*)GetDlgItem(IDOK))->EnableWindow(FALSE);
 	bWorking = true;
-	mLock.Lock();
 	CreateThread(
 		NULL,
 		0,
 		OnUpdate,
-		(LPVOID)this,
+		NULL,
 		0,
 		NULL
 	);
-	mLock.Lock();
-	mLock.Unlock();
 }
-
 
 void CUpdaterDlg::OnBnClickedCancel()
 {
