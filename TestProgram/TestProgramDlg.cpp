@@ -32,6 +32,8 @@ public:
 // 实现
 protected:
 	DECLARE_MESSAGE_MAP()
+public:
+//	afx_msg void OnTimer(UINT_PTR nIDEvent);
 };
 
 CAboutDlg::CAboutDlg() : CDialogEx(IDD_ABOUTBOX)
@@ -44,6 +46,7 @@ void CAboutDlg::DoDataExchange(CDataExchange* pDX)
 }
 
 BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
+//	ON_WM_TIMER()
 END_MESSAGE_MAP()
 
 
@@ -76,7 +79,6 @@ void CTestProgramDlg::DoDataExchange(CDataExchange* pDX)
 enum USER_MESSAGES {
 	UM_UPDATEINFO = WM_USER + 101
 };
-
 BEGIN_MESSAGE_MAP(CTestProgramDlg, CDialogEx)
 	ON_WM_SYSCOMMAND()
 	ON_WM_CLOSE()
@@ -440,3 +442,11 @@ BOOL CTestProgramDlg::CanExit()
 	return TRUE;
 }
 
+
+
+//void CAboutDlg::OnTimer(UINT_PTR nIDEvent)
+//{
+//	// TODO: 在此添加消息处理程序代码和/或调用默认值
+//
+//	CDialogEx::OnTimer(nIDEvent);
+//}

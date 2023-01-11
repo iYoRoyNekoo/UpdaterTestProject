@@ -51,4 +51,5 @@ public:
 	CProgressCtrl m_ProgressCurrent;
 	CProgressCtrl m_ProgressTotal;
 	afx_msg void OnBnClickedCancel();
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
 };

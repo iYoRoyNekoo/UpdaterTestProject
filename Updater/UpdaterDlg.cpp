@@ -66,6 +66,11 @@ void CUpdaterDlg::DoDataExchange(CDataExchange* pDX)
 enum USER_MESSAGES {
 	UM_FINISH_INIT_DLG_UPDATE = WM_USER + 101
 };
+enum USER_TIMERS {
+	TIMER_SHOW_CURRENT_PROGRESS = 1,
+	TIMER_SHOW_CURRENT_SPEED
+};
+
 
 BEGIN_MESSAGE_MAP(CUpdaterDlg, CDialogEx)
 	ON_WM_SYSCOMMAND()
@@ -74,6 +79,7 @@ BEGIN_MESSAGE_MAP(CUpdaterDlg, CDialogEx)
 	ON_MESSAGE(UM_FINISH_INIT_DLG_UPDATE, &CUpdaterDlg::OnFinishInitUpdateDlg)
 	ON_BN_CLICKED(IDOK, &CUpdaterDlg::OnBnClickedOk)
 	ON_BN_CLICKED(IDCANCEL, &CUpdaterDlg::OnBnClickedCancel)
+	ON_WM_TIMER()
 END_MESSAGE_MAP()
 
 
@@ -91,6 +97,9 @@ bool bWorking = false;
 CMutex mLock;
 FILES_TO_DOWNLOAD* mFiles;
 CUpdaterDlg* Gp_Dlg;
+std::string strCurrentTaskStatus = "";
+std::string strCurrentTaskSpeed = "0.00B/s";
+std::string strCurrentTaskRemainTime = "";
 
 std::string UnicodeStringToSTLString(CString strUTF) {
 	int n = strUTF.GetLength();
@@ -112,14 +121,51 @@ size_t curl_writefile_callback(void* ptr, size_t size, size_t nmemb, FILE* strea
 	size_t written = fwrite(ptr, size, nmemb, stream);
 	return written;
 }
-int curl_showprogress_callback(void* ptr, double TotalToDownload, double NowDownloaded, double TotalToUpload, double NowUploaded) {
-	double fractiondownloaded;
+size_t curl_showprogress_callback(void* ptr, double TotalToDownload, double NowDownloaded, double TotalToUpload, double NowUploaded) {
+	CURL* mCurl = static_cast<CURL*>(ptr);
+	double fractiondownloaded,speed;
+	int pointer;
+	char szBuffer[128];
+	std::string unit = "B";
+
 	if (TotalToDownload == 0.0)
 		fractiondownloaded = 0;
 	else 
 		fractiondownloaded = NowDownloaded / TotalToDownload;
-	int pointer = round(fractiondownloaded * 100);
+	pointer = round(fractiondownloaded * 100);
+	sprintf_s(szBuffer, "%d%%", pointer);
 	Gp_Dlg->m_ProgressCurrent.SetPos(pointer);
+	
+	strCurrentTaskStatus = szBuffer;
+
+	curl_easy_getinfo(mCurl, CURLINFO_SPEED_DOWNLOAD, &speed);
+
+	double leftTime = (TotalToDownload - NowDownloaded ) / speed;
+	int minutes = leftTime / 60;
+	int seconds = leftTime - minutes * 60;
+
+	sprintf_s(szBuffer, "%02d:%02d", minutes, seconds);
+	strCurrentTaskRemainTime = szBuffer;
+
+	if (speed >= 1024)
+	{
+		unit = "kB";
+		speed /= 1024;
+	}
+	if (speed >= 1024)
+	{
+		unit = "MB";
+		speed /= 1024;
+	}
+	if (speed >= 1024)
+	{
+		unit = "GB";
+		speed /= 1024;
+	}
+
+	sprintf_s(szBuffer, "%.2f%s/s", speed, unit.c_str());
+	strCurrentTaskSpeed = szBuffer;
+
 	return 0;
 }
 
@@ -353,6 +399,8 @@ BOOL CUpdaterDlg::OnInitDialog()
 		NULL
 	);  
 
+	SetTimer(TIMER_SHOW_CURRENT_PROGRESS, 200, NULL);
+	SetTimer(TIMER_SHOW_CURRENT_SPEED, 1000, NULL);
 	m_ProgressCurrent.SetRange(0, 100);
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
@@ -533,6 +581,7 @@ DWORD WINAPI OnUpdate(LPVOID lpParam) {
 	CURLcode mCode;
 	std::string mUA = "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:13.0) Gecko/20100101 Firefox/13.0.1 TestProject/1.0.0";
 	std::string szheader_buffer;
+	CString strTotalProgText;
 	double val;
 
 	//curl init
@@ -548,12 +597,17 @@ DWORD WINAPI OnUpdate(LPVOID lpParam) {
 	curl_easy_setopt(mCurl, CURLOPT_WRITEFUNCTION, curl_writefile_callback);//设置回调函数（不同于写入字符串）
 	curl_easy_setopt(mCurl, CURLOPT_PROGRESSFUNCTION, curl_showprogress_callback);//设置进度显示
 	curl_easy_setopt(mCurl, CURLOPT_NOPROGRESS, 0L);//设置进度
+	curl_easy_setopt(mCurl, CURLOPT_XFERINFODATA, mCurl);//传入mCurl，让进度回调能够获取速度
 	//抓取头信息，回调函数  
 	curl_easy_setopt(mCurl, CURLOPT_HEADERFUNCTION, curl_default_callback);
 	curl_easy_setopt(mCurl, CURLOPT_HEADERDATA, &szheader_buffer);
 
 
 	for (int i = 0; i < totalDownload; i++) {
+		
+		strTotalProgText.Format(L"正在下载第%i个文件", i + 1);
+		Gp_Dlg->SetDlgItemTextW(IDC_STATUS, strTotalProgText);
+
 		FILE* pFile;
 		fopen_s(&pFile, mFiles[i].strLocal.c_str(), "wb");
 		curl_easy_setopt(mCurl, CURLOPT_WRITEDATA, pFile);
@@ -577,8 +631,13 @@ DWORD WINAPI OnUpdate(LPVOID lpParam) {
 		//HRESULT ret=URLDownloadToFileA(NULL, strFilesToDownload[i].c_str(), UnicodeStringToSTLString(strFilePath).c_str(), 0, &cbc);
 		fclose(pFile);
 
+
+		strCurrentTaskStatus = strCurrentTaskRemainTime = "";
+		strCurrentTaskSpeed = "0.00B/s";
 		Gp_Dlg->m_ProgressTotal.SetPos(i + 1);
 	}
+
+	Gp_Dlg->SetDlgItemTextW(IDC_STATUS, L"更新完成");
 
 	bWorking = false;
 	return 0;
@@ -606,4 +665,23 @@ void CUpdaterDlg::OnBnClickedCancel()
 		PostQuitMessage(-1);
 	}
 	CDialogEx::OnCancel();
+}
+
+void CUpdaterDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	// TODO: 在此添加消息处理程序代码和/或调用默认值
+	switch (nIDEvent) {
+	case TIMER_SHOW_CURRENT_PROGRESS: {
+		SetDlgItemTextA(this->m_hWnd, IDC_CURR_PROG, strCurrentTaskStatus.c_str());
+		break;
+	}
+	case TIMER_SHOW_CURRENT_SPEED: {
+		SetDlgItemTextA(this->m_hWnd, IDC_CURR_SPEED, strCurrentTaskSpeed.c_str());
+		SetDlgItemTextA(this->m_hWnd, IDC_CURR_REMAIN_TIME, strCurrentTaskRemainTime.c_str());
+		break;
+	}
+	default: break;
+	}
+
+	CDialogEx::OnTimer(nIDEvent);
 }
