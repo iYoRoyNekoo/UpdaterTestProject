@@ -637,7 +637,8 @@ DWORD WINAPI OnUpdate(LPVOID lpParam) {
 		Gp_Dlg->m_ProgressTotal.SetPos(i + 1);
 	}
 
-	Gp_Dlg->SetDlgItemTextW(IDC_STATUS, L"更新完成");
+	Gp_Dlg->SetDlgItemText(IDC_STATUS, L"更新完成");
+	Gp_Dlg->SetDlgItemText(IDCANCEL, L"退出");
 
 	bWorking = false;
 	return 0;

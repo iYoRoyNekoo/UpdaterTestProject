@@ -364,3 +364,6 @@ FodyWeavers.xsd
 /Updater/TestData1.json
 /Updater/TestData3.json
 /Updater/TestData2.json
+/TestProgram/TestData1.json
+/TestProgram/TestData3.json
+/TestProgram/TestData2.json
