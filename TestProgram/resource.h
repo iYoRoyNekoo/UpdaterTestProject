@@ -10,7 +10,11 @@
 #define IDP_SOCKETS_INIT_FAILED         103
 #define IDR_MAINFRAME                   128
 #define IDC_STATIC_TDL1V                1001
+#define IDC_DATA1_VER                   1001
 #define IDC_STATIC_MPV                  1002
+#define IDC_DATA2_VER                   1003
+#define IDC_TEST3_VER                   1004
+#define IDC_DATA3_VER                   1004
 
 // Next default values for new objects
 // 

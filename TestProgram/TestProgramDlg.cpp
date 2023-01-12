@@ -301,6 +301,21 @@ BOOL CTestProgramDlg::OnInitDialog()
 
 	// TODO: 在此添加额外的初始化代码
 
+	std::ifstream readdata;
+	Json::Reader jReader;
+	Json::Value jRoot;
+	readdata.open("TestData1.json");
+	jReader.parse(readdata, jRoot);
+	SetDlgItemTextA(m_hWnd, IDC_DATA1_VER, jRoot["version"].asCString());
+	readdata.close();
+	readdata.open("TestData2.json");
+	jReader.parse(readdata, jRoot);
+	SetDlgItemTextA(m_hWnd, IDC_DATA2_VER, jRoot["version"].asCString());
+	readdata.close();
+	readdata.open("TestData3.json");
+	jReader.parse(readdata, jRoot);
+	SetDlgItemTextA(m_hWnd, IDC_DATA3_VER, jRoot["version"].asCString());
+	readdata.close();
 	SetDlgItemText(IDC_STATIC_MPV, strVersion);
 
 	mLock.Lock();
