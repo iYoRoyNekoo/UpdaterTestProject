@@ -1,0 +1,22 @@
+[
+    {
+        "filepath":"packages/TestProgram.exe",
+        "local":"TestProgram.exe",
+        "generatebuild":1
+    },
+    {
+        "filepath":"packages/TestData1.json",
+        "local":"TestData1.json",
+        "generatebuild":2
+    },
+    {
+        "filepath":"packages/TestData2.json",
+        "local":"TestData2.json",
+        "generatebuild":2
+    },
+    {
+        "filepath":"packages/TestData3.json",
+        "local":"TestData3.json",
+        "generatebuild":2
+    }
+]
