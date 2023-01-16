@@ -397,8 +397,6 @@ void CTestProgramDlg::OnClose()
 LRESULT CTestProgramDlg::OnReceiveUpdateInfo(WPARAM wParam, LPARAM lParam)
 {
 	if (MessageBox(L"检测到新版本，是否打开更新器？", L"Info", MB_OKCANCEL | MB_ICONINFORMATION) == IDOK) {
-		STARTUPINFO si;
-		PROCESS_INFORMATION pi;
 		CString strPath;
 		TCHAR pszCmdLine[512],pszProcessFileName[MAX_PATH];
 		GetModuleFileName(NULL, pszProcessFileName, MAX_PATH);
@@ -406,26 +404,10 @@ LRESULT CTestProgramDlg::OnReceiveUpdateInfo(WPARAM wParam, LPARAM lParam)
 		int nPos = strPath.ReverseFind(L'\\');
 		if (nPos > 0)
 			strPath = strPath.Left(nPos);
-		wsprintf(pszCmdLine, L"Updater.exe --FilePath \"%s\" --CurrentBuild %d --CurrentVersion \"%s\"", strPath, mBuild, strVersion);
-		ZeroMemory(&si, sizeof(si));
-		si.cb = sizeof(si);
-		ZeroMemory(&pi, sizeof(pi));
-		
-		if (!CreateProcess(NULL,   // No module name (use command line)
-			pszCmdLine,        // Command line
-			NULL,           // Process handle not inheritable
-			NULL,           // Thread handle not inheritable
-			FALSE,          // Set handle inheritance to FALSE
-			0,              // No creation flags
-			NULL,           // Use parent's environment block
-			NULL,           // Use parent's starting directory 
-			&si,            // Pointer to STARTUPINFO structure
-			&pi)           // Pointer to PROCESS_INFORMATION structure
-			) {
-			MessageBox(L"错误：无法启动更新器", L"Error", MB_OK | MB_ICONERROR);
-		}
-		CloseHandle(pi.hProcess);
-		CloseHandle(pi.hThread);
+
+		wsprintf(pszCmdLine, L"--CurrentBuild %d --CurrentVersion \"%s\"", mBuild, strVersion);
+		ShellExecute(this->m_hWnd, L"runas", L"Updater.exe", pszCmdLine, strPath, 0);
+
 		PostQuitMessage(0);
 	}
 	return LRESULT();

@@ -16,13 +16,12 @@
 ## 使用方式
 ### 客户端
 **Test Program**为样例程序，可参考`CTestProgramDlg::OnInitDialog()`中调用的线程执行检查更新和下载更新器本体。 
-更新器的调用方式采用了最简单的命令行传参，共需要传入**3**个参数。若参数缺少或多于，Updater将无法运行。（参数检查在Updater的`OnInitDialog()`函数中实现，你可以修改以实现更多功能。）  
+更新器的调用方式采用了最简单的命令行传参，共需要传入**2**个参数。若参数缺少或多于，Updater将无法运行。（参数检查在Updater的`OnInitDialog()`函数中实现，你可以修改以实现更多功能。）  
 其参数标准如下表：  
 | 参数名称 | 数值意义 |
 | ---- | ---- |
 | --CurrentVersion | 当前主程序版本代号 |
 | --CurrentBuild | 当前主程序Build代号 |
-| --FilePath | 主程序所在目录（方便更新器写入） |
 
 *注：Build代号需要为纯数字，便于比较 ~~（懒得写了就这样吧咕咕咕）~~ *
 
@@ -92,6 +91,9 @@
 | GetModuleFileName | https://learn.microsoft.com/en-us/windows/win32/api/libloaderapi/nf-libloaderapi-getmodulefilenamea |
 | GetModuleFileName | https://bbs.csdn.net/topics/50276709 |
 | Unicode模式传参 | https://github.com/EnderMo/LightFrameInstaller/blob/master/LightFrameInstaller.cpp |
+| 提权CreateProcess失败解决方案 | https://bbs.csdn.net/topics/380082344 |
+| ShellExecute | https://learn.microsoft.com/zh-cn/windows/win32/shell/launch |
+| ShellExecute | https://blog.csdn.net/zhanglidn013/article/details/47177041 |
 
 ##### libcurl：
 | 参考原因 | 文档地址 |

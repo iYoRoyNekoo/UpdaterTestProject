@@ -371,7 +371,7 @@ BOOL CUpdaterDlg::OnInitDialog()
 	mCurBuild = 1;
 	strFilePath = ".\\";
 #else
-	if (__argc != 7) {
+	if (__argc != 5) {
 		MessageBox(L"不支持的调用方式！", L"Error", MB_OK | MB_ICONERROR);
 		PostQuitMessage(-1);
 	}
@@ -381,8 +381,6 @@ BOOL CUpdaterDlg::OnInitDialog()
 			strCurVer = __wargv[++i];
 		if (wcsstr(__wargv[i], L"--CurrentBuild"))
 			mCurBuild = _ttoi(__wargv[++i]);
-		if (wcsstr(__wargv[i], L"--FilePath"))
-			strFilePath = __wargv[++i];
 	}
 #endif // DEBUG
 
